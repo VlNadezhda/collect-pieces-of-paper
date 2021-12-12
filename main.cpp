@@ -3,7 +3,6 @@
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/highgui.hpp"
 #include "opencv2/stitching.hpp"
-#include "opencv2/imgcodecs.hpp"
 #include "opencv2/imgproc.hpp"
 
 using namespace cv;
@@ -12,33 +11,29 @@ RNG rng(12345);
 int thresh = 100;
 
 std::tuple<double,double,double> get_line_through_points
-(Point_<int> p0,Point_<int> p1){
+(cv::Point p0,cv::Point p1){
 
     std::tuple<double,double,double> result(
             p1.y - p0.y, p0.x - p0.x,
             p1.x*p0.y - p0.x*p1.y);
-};
-
-double  distance_point_line_squared
-(std::tuple<double,double,double> coef, Point_<int> p0){
-
-    double a = std::get<0>(coef);
-    double b = std::get<1>(coef);
-    double c = std::get<2>(coef);
-
-    double result = (a*p0.x + b*p0.y + c)*(a*p0.x + b*p0.y + c)/(a*a + b*b);
+    std::cout<<"["<<p1.x<<":"<<p0.x<<"]["<<p1.y<<";"<<p0.y<<"]\n";
+    std::cout<<"A: "<<std::get<0>(result)<<"B: "<<std::get<1>(result)<<"C: "<<std::get<2>(result)<<"\n";
     return result;
 };
 
-double distance_point_line_signed
-(std::tuple<double,double,double> coef, Point_<int> p0){
-    double a = std::get<0>(coef);
-    double b = std::get<1>(coef);
-    double c = std::get<2>(coef);
+double distance(cv::Point p0,cv::Point p1){
+    return sqrt((p1.x-p0.x)*(p1.x-p0.x) + (p1.y-p0.y)*(p1.y-p0.y));
+}
+double the_angle_between_the_lines(std::tuple<double,double,double> l1,std::tuple<double,double,double> l2){
+    double A1 = std::get<0>(l1);
+    double B1 = std::get<1>(l1);
 
-    double result = (a*p0.x + b*p0.y + c)/std::sqrt(a*a + b*b);
-    return result;
-};
+    double A2 = std::get<0>(l2);
+    double B2 = std::get<1>(l2);
+
+    double cos = (A1*A2+B1*B2)/(sqrt(A1*A1+B1*B1)*sqrt(A2*A2+B2*B2));
+    return cos;
+}
 
 std::pair<int,int> rotate (Mat image, double degrees){
     Point2f center((image.cols - 1) / 2.0, (image.rows - 1) / 2.0);
@@ -80,78 +75,48 @@ cv::Mat GetSquareImage( const cv::Mat& img, int target_width)
     return square;
 };
 
-cv::Mat preprocessing(const cv::Mat& img){
-    Mat im = img;
-    cv::cvtColor(img, im, COLOR_BGR2GRAY);
+void preprocessing(cv::Mat& im){
+    medianBlur(im, im, 3);
+    cv::cvtColor(im, im, COLOR_BGR2GRAY);
     cv::threshold(im, im, 128, 255, THRESH_BINARY);
 
     //для удобства поворота в дальнейшем делаем квадратным изображение
 //    int length = img.cols > img.rows ? img.cols : img.rows;
 //    Mat result = GetSquareImage(im, length);
 //    namedWindow("pre",WINDOW_AUTOSIZE);
-//    imshow("pre",result);
+//    imshow("pre",im);
 //    waitKey(0);
-    return img;
 };
 
-cv::Mat finding_corners(const cv::Mat& img){
-    Mat gray = img;
-    cvtColor(gray, gray, cv::COLOR_BGR2GRAY);
-    Mat dst,dst_norm,dst_norm_scaled;
-    dst=Mat::zeros(gray.size(),CV_32FC1);
-
-    cornerHarris(gray,dst,15,5,0.05,BORDER_DEFAULT);
-
-    normalize(dst,dst_norm,0,255,NORM_MINMAX,CV_32FC1,Mat());
-    convertScaleAbs(dst_norm,dst_norm_scaled);
-
-    for(int j = 0;j<dst_norm.rows;j++){
-        for(int i = 0;i<dst_norm.cols;i++){
-            if((int)dst_norm.at<float>(j,i)>150){
-//                std::cout<<(int)dst_norm.at<float>(j,i)<<"  ";
-                circle(dst_norm_scaled,Point(i,j),10,Scalar(255,255,255),1,8,0);
-            }
-        }
-    }
-//    imwrite("result.png",dst_norm_scaled);
-    cv::moveWindow("corners_window", 200, 0);
-    imshow("corners_window",dst_norm_scaled);
-    waitKey(0);
-};
-
-std::vector<cv::Point> find_contours(const cv::Mat& img)
+std::vector<std::vector<cv::Point>> find_contours(const cv::Mat& img)
 {
     Mat im = img;
-    cv::cvtColor(im, im, COLOR_BGR2GRAY);
-    cv::threshold(im, im, 128, 255, THRESH_BINARY);
+//    cv::cvtColor(im, im, COLOR_BGR2GRAY);
+//    cv::threshold(im, im, 128, 255, THRESH_BINARY);
 
     std::vector<std::vector<cv::Point> > contours;
     cv::Mat contourOutput = im.clone();
     cv::findContours( contourOutput, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE );
 
-//    for(uint i = 0; i < contours.size(); ++i){
-//        for(uint j = 0; j < contours[i].size(); ++j){
-//            std::cout<<contours[i][j]<<", ";
-//        }
-//        std::cout<<std::endl;
-//    }
-    //Draw the contours
+    approxPolyDP(Mat(contours[0]), contours[0], 3, false);
+    return  contours;
+}
+
+void contour_processing(std::vector<std::vector<cv::Point>> &contours, Mat &im){
     cv::Mat contourImage(im.size(), CV_8UC3, cv::Scalar(0,0,0));
     Mat res = contourImage;
-
-    approxPolyDP(Mat(contours[0]), contours[0], 3, false);
     for (int i = 0; i < contours[0].size(); ++i){
         circle(res, contours[0][i], 3, Scalar(0,255,0));
     }
+
     for (size_t idx = 0; idx < contours.size(); idx++) {
         cv::drawContours(contourImage, contours, 0, 255);
     }
-//    cv::imshow("ys", res);
     cv::imshow("Contours", contourImage);
     cv::moveWindow("Contours", 200, 0);
     cv::waitKey(0);
 
-    return  contours[0];
+
 }
 
 int main(int argc, char* argv[]) {
@@ -175,8 +140,9 @@ int main(int argc, char* argv[]) {
     parts.push_back(part_3);
 
     for(auto im: parts){
-        find_contours(im);
-//        std::cout<<"\n_________\n";
+        preprocessing(im);
+        std::vector<std::vector<cv::Point>> c = find_contours(im);
+        contour_processing(c, im);
     }
 
     return 0;
