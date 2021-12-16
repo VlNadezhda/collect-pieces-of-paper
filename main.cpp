@@ -32,7 +32,8 @@ std::tuple<double,double,double> get_line_through_points
 };
 
 double distance(cv::Point p0,cv::Point p1){
-    return sqrt((p1.x-p0.x)*(p1.x-p0.x) + (p1.y-p0.y)*(p1.y-p0.y));
+    double result = sqrt((p1.x-p0.x)*(p1.x-p0.x) + (p1.y-p0.y)*(p1.y-p0.y));
+    return round(result*10)/10;
 }
 double the_angle_between_the_lines(std::tuple<double,double,double> l1,std::tuple<double,double,double> l2){
     double A1 = std::get<0>(l1);
@@ -42,9 +43,9 @@ double the_angle_between_the_lines(std::tuple<double,double,double> l1,std::tupl
     double B2 = std::get<1>(l2);
 
     double cos = abs(A1*A2+B1*B2)/(sqrt(A1*A1+B1*B1)*sqrt(A2*A2+B2*B2));
-    std::cout<<cos<<"\n";
+//    std::cout<<cos<<"\n";
     cos = round(cos*10000)/10000;
-    cos = round(cos*1000)/1000;
+    cos = round(cos*100)/100;
     return cos;
 }
 
@@ -93,9 +94,9 @@ void preprocessing(cv::Mat& im){
     cv::cvtColor(im, im, COLOR_BGR2GRAY);
     cv::threshold(im, im, 128, 255, THRESH_BINARY);
 
-    //для удобства поворота в дальнейшем делаем квадратным изображение
-//    int length = img.cols > img.rows ? img.cols : img.rows;
-//    Mat result = GetSquareImage(im, length);
+//    для удобства поворота в дальнейшем делаем квадратным изображение
+    int length = im.cols > im.rows ? im.cols : im.rows;
+    im = GetSquareImage(im, length);
 //    namedWindow("pre",WINDOW_AUTOSIZE);
 //    imshow("pre",im);
 //    waitKey(0);
@@ -104,9 +105,6 @@ void preprocessing(cv::Mat& im){
 std::vector<std::vector<cv::Point>> find_contours(const cv::Mat& img)
 {
     Mat im = img;
-//    cv::cvtColor(im, im, COLOR_BGR2GRAY);
-//    cv::threshold(im, im, 128, 255, THRESH_BINARY);
-
     std::vector<std::vector<cv::Point> > contours;
     cv::Mat contourOutput = im.clone();
     cv::findContours( contourOutput, contours, RETR_EXTERNAL, CHAIN_APPROX_SIMPLE );
@@ -121,7 +119,7 @@ std::vector<std::pair<double,spec_line>> contour_processing(
 //    cv::Mat contourImage(im.size(), CV_8UC3, cv::Scalar(0,0,0));
 //    Mat res = contourImage;
 //    for (int i = 0; i < contours[0].size(); ++i){
-//        circle(res, contours[0][i], 3, Scalar(0,255,0));
+//        circle(res, contours[0][i], i+3, Scalar(0,255,0));
 //    }
 //
 //    for (size_t idx = 0; idx < contours.size(); idx++) {
@@ -149,32 +147,80 @@ std::vector<std::pair<double,spec_line>> contour_processing(
       tmp.second.l2 = coef.at(i).second;
       tmp.second.index = ind;
       tmp.second.num = i;
-        std::cout<<"degree: "<<tmp.first<<"\nl1: "<<tmp.second.l1<<
-                 "l2: "<<tmp.second.l2<<"\nindex: "<<tmp.second.index
-                 <<" num: "<<tmp.second.num<<"\n------\n";
+//        std::cout<<"degree: "<<tmp.first<<"\nl1: "<<tmp.second.l1<<
+//                 "l2: "<<tmp.second.l2<<"\nindex: "<<tmp.second.index
+//                 <<" num: "<<tmp.second.num<<"\n------\n";
       result.push_back(tmp);
     }
     return result;
 }
 
+bool are_same(spec_line line_1,spec_line line_2){
+    int lM_1;
+    int lm_1;
+
+    int lM_2;
+    int lm_2;
+
+    if(line_1.l1 > line_1.l2){
+        lM_1 =  line_1.l1;
+        lm_1 = line_1.l2;
+    }else{
+        lM_1 =  line_1.l2;
+        lm_1 = line_1.l1;
+    }
+
+    if(line_2.l1 > line_2.l2){
+        lM_2 =  line_2.l1;
+        lm_2 = line_2.l2;
+    }else{
+        lM_2 =  line_2.l2;
+        lm_2 = line_2.l1;
+    }
+
+//    std::cout<<lM_1<<" "<<lm_1<<"; "<<lM_2<<" "<<lm_2<<"\n";
+    if( (lM_1 - 6 < lM_2 && lM_2 < lM_1 + 6) && (lm_1 - 6 < lm_2 && lm_2 < lm_1 + 6)){
+        return  true;
+    }
+    return false;
+}
+
 void search_for_matches(std::vector<std::pair<double,spec_line>> d1,
                         std::vector<std::pair<double,spec_line>>d2){
     std::map<double,spec_line> find_map;
+    double eps = 0.01;
 
-    for(auto i:d1){
+    for(auto i: d1){
         find_map[i.first] = i.second;
     }
 
-    double eps = 0.02;
-    for(auto i:d2){
-        if(find_map.count(i.first)){
-            std::cout<<"degree: "<<i.first<<"\nl1: "<<i.second.l1
-            <<" l2: "<<i.second.l2<<"\nindex: "<<i.second.index
-                    <<" num: "<<i.second.num<<"\n------\n";;
-            std::cout<<"degree: "<<i.first<<"\nl1: "<<find_map[i.first].l1
-            <<" l2: "<<find_map[i.first].l2<<"\nindex: "<<find_map[i.first].index
-                     <<" num: "<<find_map[i.first].num<<"\n------\n";
+    std::vector<std::pair<spec_line,spec_line>>coincidences;
+    std::pair<spec_line,spec_line>tmp;
+//    for(auto i: d2){
+//        if(find_map.count(i.first) && are_same(find_map[i.first],i.second)){
+//            tmp.first = i.second;
+//            tmp.second = find_map[i.first];
+//            coincidences.push_back(std::move(tmp));
+//        }
+//    }
+
+    for(uint i = 0; i < d1.size(); ++i){
+        for(uint j = 0; j < d1.size(); ++j){
+            if(d1[i].first == d2[j].first || (d1[i].first - 0.02 < d2[j].first && d2[j].first < d1[i].first + 0.02)){
+                if(are_same(d1[i].second,d2[j].second)){
+                    tmp.first = d1[i].second;
+                    tmp.second = d2[j].second;
+                    coincidences.push_back(std::move(tmp));
+                }
+            }
         }
+    }
+
+    for(auto i:coincidences){
+            std::cout<<"line: "<<i.first.index<<"\nl1: "<<i.first.l1
+            <<" l2: "<<i.first.l2<<"\nnum: "<<i.first.num<<"**********\n";;
+            std::cout<<"line: "<<i.second.index<<"\nl1: "<<i.second.l1
+            <<" l2: "<<i.second.l2<<"\nindex: "<<i.second.num<<"\n------\n";
     }
 
 //    for(auto i: find_map){
@@ -199,9 +245,6 @@ int main(int argc, char* argv[]) {
     roi_2.copyTo(part_2);
     parts.push_back(part_2);
 
-    std::vector<std::pair<double,spec_line>> v0;
-    std::vector<std::pair<double,spec_line>> v1;
-
     Mat roi_3(img, Rect(760,400,500,500));
     Mat part_3;
     roi_3.copyTo(part_3);
@@ -213,9 +256,14 @@ int main(int argc, char* argv[]) {
     std::vector<std::vector<cv::Point>> c0 = find_contours(parts.at(0));
     std::vector<std::vector<cv::Point>> c1= find_contours(parts.at(1));
 
+    std::vector<std::pair<double,spec_line>> v0;
+    std::vector<std::pair<double,spec_line>> v1;
+
     v0 = contour_processing(c0,parts.at(0),0);
     v1 = contour_processing(c1,parts.at(2), 1);
-//    search_for_matches(v0,v1);
+    std::reverse(v1.begin(), v1.end());
+
+    search_for_matches(v0,v1);
 
 //    for(auto im: parts){
 //
