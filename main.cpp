@@ -14,7 +14,9 @@ int thresh = 100;
 typedef std::tuple<double,double,double> ABC;
 
 struct spec_line{
+    ABC abc1;
     double l1;
+    ABC abc2;
     double l2;
     int index;
     int num;
@@ -132,7 +134,7 @@ std::vector<std::pair<double,spec_line>> contour_processing(
     std::vector<std::pair<ABC,double>> coef;
     std::pair<ABC,double> temp;
     for (uint i = 1; i < contours[0].size(); ++i){
-        temp.first = get_line_through_points(contours[0][i-1],contours[0][i]);
+        temp.first= get_line_through_points(contours[0][i-1],contours[0][i]);
         temp.second = distance(contours[0][i-1],contours[0][i]);
         coef.push_back(std::move(temp));
     }
@@ -144,7 +146,9 @@ std::vector<std::pair<double,spec_line>> contour_processing(
       k = i;
       tmp.first = the_angle_between_the_lines(coef.at(k-1).first,coef.at(i).first);
       tmp.second.l1 = coef.at(i-1).second;
+      tmp.second.abc1 = coef.at(i-1).first;
       tmp.second.l2 = coef.at(i).second;
+      tmp.second.abc2 = coef.at(i).first;
       tmp.second.index = ind;
       tmp.second.num = i;
 //        std::cout<<"degree: "<<tmp.first<<"\nl1: "<<tmp.second.l1<<
@@ -185,24 +189,12 @@ bool are_same(spec_line line_1,spec_line line_2){
     return false;
 }
 
-void search_for_matches(std::vector<std::pair<double,spec_line>> d1,
+std::vector<std::pair<spec_line,spec_line>> search_for_matches(
+        std::vector<std::pair<double,spec_line>> d1,
                         std::vector<std::pair<double,spec_line>>d2){
-    std::map<double,spec_line> find_map;
-    double eps = 0.01;
-
-    for(auto i: d1){
-        find_map[i.first] = i.second;
-    }
 
     std::vector<std::pair<spec_line,spec_line>>coincidences;
     std::pair<spec_line,spec_line>tmp;
-//    for(auto i: d2){
-//        if(find_map.count(i.first) && are_same(find_map[i.first],i.second)){
-//            tmp.first = i.second;
-//            tmp.second = find_map[i.first];
-//            coincidences.push_back(std::move(tmp));
-//        }
-//    }
 
     for(uint i = 0; i < d1.size(); ++i){
         for(uint j = 0; j < d1.size(); ++j){
@@ -216,18 +208,16 @@ void search_for_matches(std::vector<std::pair<double,spec_line>> d1,
         }
     }
 
-    for(auto i:coincidences){
-            std::cout<<"line: "<<i.first.index<<"\nl1: "<<i.first.l1
-            <<" l2: "<<i.first.l2<<"\nnum: "<<i.first.num<<"**********\n";;
-            std::cout<<"line: "<<i.second.index<<"\nl1: "<<i.second.l1
-            <<" l2: "<<i.second.l2<<"\nindex: "<<i.second.num<<"\n------\n";
+    if(coincidences.empty()){
+        std::cout<<" падений у контуров не найдено\n";
     }
-
-//    for(auto i: find_map){
-//        std::cout<<"degree: "<<i.first<<"\nl1: "<<i.second.l1<<
-//        "l2: "<<i.second.l2<<"\nindex: "<<i.second.index<<"\n------\n";
+//    for(auto i:coincidences){
+//            std::cout<<"line: "<<i.first.index<<"\nl1: "<<i.first.l1
+//            <<" l2: "<<i.first.l2<<"\nnum: "<<i.first.num<<"**********\n";;
+//            std::cout<<"line: "<<i.second.index<<"\nl1: "<<i.second.l1
+//            <<" l2: "<<i.second.l2<<"\nindex: "<<i.second.num<<"\n------\n";
 //    }
-
+   return coincidences;
 }
 
 int main(int argc, char* argv[]) {
@@ -260,14 +250,66 @@ int main(int argc, char* argv[]) {
     std::vector<std::pair<double,spec_line>> v1;
 
     v0 = contour_processing(c0,parts.at(0),0);
-    v1 = contour_processing(c1,parts.at(2), 1);
+    v1 = contour_processing(c1,parts.at(1), 1);
     std::reverse(v1.begin(), v1.end());
 
-    search_for_matches(v0,v1);
+    std::vector<std::pair<spec_line,spec_line>> same = search_for_matches(v0,v1);
 
-//    for(auto im: parts){
-//
-//    }
+    cv::Mat contourImage(parts[0].size(), CV_8UC3, cv::Scalar(0,0,0));
+    Mat res = contourImage;
+
+    cv::Mat contourImage1(parts[1].size(), CV_8UC3, cv::Scalar(0,0,0));
+    Mat res1 = contourImage1;
+
+    for(auto i: same){
+        std::cout<<"line: "<<i.first.index<<"\nl1: "<<i.first.l1
+                 <<" l2: "<<i.first.l2<<"\nnum: "<<i.first.num<<"\n";
+        std::cout<<"["<<c0[0][i.first.num-1]<<" ; "<<c0[0][i.first.num]<<"] ";
+        std::cout<<"["<<c0[0][i.first.num]<<" ; "<<c0[0][i.first.num+1]<<"]\n---------------";
+
+        std::cout<<"line: "<<i.second.index<<"\nl1: "<<i.second.l1
+                 <<" l2: "<<i.second.l2<<"\nindex: "<<i.second.num<<"\n";
+        std::cout<<"["<<c1[0][i.second.num-1]<<" ; "<<c1[0][i.second.num]<<"] ";
+        std::cout<<"["<<c1[0][i.second.num]<<" ; "<<c1[0][i.second.num+1]<<"]\n-------------";
+
+        circle(res, c0[0][i.first.num-1], 3, Scalar(0,255,0));
+        circle(res, c0[0][i.first.num+1], 3, Scalar(0,255,0));
+
+        circle(res1, c1[0][i.second.num-1], 3, Scalar(0,255,0));
+        circle(res1, c1[0][i.second.num+1], 3, Scalar(0,255,0));
+//        std::cout<<"----------------------------------------------------------";
+//        ABC abc1;
+//        ABC abc2;
+//        if(i.first.l1 > i.first.l2){
+//            abc1 = i.first.abc1;
+//        }else{
+//            abc1 = i.first.abc2;
+//        }
+//        if(i.second.l1 > i.second.l2){
+//            abc2 = i.first.abc1;
+//        }else{
+//            abc2 = i.second.abc2;
+//        }
+//        std::cout<<"degree: "<<the_angle_between_the_lines(abc1, abc2);
+    }
+
+    for (size_t idx = 0; idx < c0.size(); idx++) {
+        cv::drawContours(contourImage, c0, 0, 255);
+    }
+    cv::imshow("Contours", contourImage);
+//    cv::moveWindow("Contours", 200, 0);
+//    cv::waitKey(0);
+
+    for (size_t idx = 0; idx < c1.size(); idx++) {
+        cv::drawContours(contourImage1, c1, 0, 255);
+    }
+    cv::imshow("Contours1", contourImage1);
+//    cv::moveWindow("Contours1", 200, 0);
+    cv::waitKey(0);
+//    rotate(part_1,260);
+//    cv::imshow("Contours", part_1);
+//    cv::moveWindow("Contours", 200, 0);
+//    cv::waitKey(0);
 
     return 0;
 }
