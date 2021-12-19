@@ -4,12 +4,9 @@
 #include "opencv2/highgui.hpp"
 #include "opencv2/stitching.hpp"
 #include "opencv2/imgproc.hpp"
-#include <map>
+#include <cmath>
 
 using namespace cv;
-
-RNG rng(12345);
-int thresh = 100;
 
 typedef std::tuple<double,double,double> ABC;
 
@@ -51,18 +48,20 @@ double the_angle_between_the_lines(std::tuple<double,double,double> l1,std::tupl
     return cos;
 }
 
-std::pair<int,int> rotate (Mat image, double degrees){
+std::pair<int,int> rotate (Mat &image, double degrees){
     Point2f center((image.cols - 1) / 2.0, (image.rows - 1) / 2.0);
     Mat rotation_matix = getRotationMatrix2D(center, degrees, 1.0);
 
-    Mat rotated_image;
-    warpAffine(image, rotated_image, rotation_matix, image.size());
-    imshow("Rotated image", rotated_image);
-    waitKey(0);
+    warpAffine(image, image, rotation_matix, image.size());
+//    imshow("Rotated image", image);
+//    waitKey(0);
 };
 
-cv::Mat GetSquareImage( const cv::Mat& img, int target_width)
+cv::Mat GetSquareImage( const cv::Mat& img)
 {
+    //    для удобства поворота в дальнейшем делаем квадратным изображение
+    int target_width = img.cols > img.rows ? img.cols : img.rows;
+
     int width = img.cols,
             height = img.rows;
 
@@ -86,22 +85,15 @@ cv::Mat GetSquareImage( const cv::Mat& img, int target_width)
         roi.x = ( target_width - roi.width ) / 2;
     }
 
-    cv::resize( img, square( roi ), roi.size() );
-
+    cv::resize( img, square( roi ), roi.size());
     return square;
 };
 
 void preprocessing(cv::Mat& im){
+    im = GetSquareImage(im);
     medianBlur(im, im, 3);
     cv::cvtColor(im, im, COLOR_BGR2GRAY);
     cv::threshold(im, im, 128, 255, THRESH_BINARY);
-
-//    для удобства поворота в дальнейшем делаем квадратным изображение
-    int length = im.cols > im.rows ? im.cols : im.rows;
-    im = GetSquareImage(im, length);
-//    namedWindow("pre",WINDOW_AUTOSIZE);
-//    imshow("pre",im);
-//    waitKey(0);
 };
 
 std::vector<std::vector<cv::Point>> find_contours(const cv::Mat& img)
@@ -118,19 +110,6 @@ std::vector<std::vector<cv::Point>> find_contours(const cv::Mat& img)
 
 std::vector<std::pair<double,spec_line>> contour_processing(
         std::vector<std::vector<cv::Point>> &contours, Mat &im, int ind){
-//    cv::Mat contourImage(im.size(), CV_8UC3, cv::Scalar(0,0,0));
-//    Mat res = contourImage;
-//    for (int i = 0; i < contours[0].size(); ++i){
-//        circle(res, contours[0][i], i+3, Scalar(0,255,0));
-//    }
-//
-//    for (size_t idx = 0; idx < contours.size(); idx++) {
-//        cv::drawContours(contourImage, contours, 0, 255);
-//    }
-//    cv::imshow("Contours", contourImage);
-//    cv::moveWindow("Contours", 200, 0);
-//    cv::waitKey(0);
-
     std::vector<std::pair<ABC,double>> coef;
     std::pair<ABC,double> temp;
     for (uint i = 1; i < contours[0].size(); ++i){
@@ -220,6 +199,105 @@ std::vector<std::pair<spec_line,spec_line>> search_for_matches(
    return coincidences;
 }
 
+void draw_result(std::vector<std::pair<spec_line,spec_line>> same, Mat part1, Mat part2,
+                 std::vector<std::vector<cv::Point>> c0,std::vector<std::vector<cv::Point>> c1){
+    cv::Mat contourImage(part1.size(), CV_8UC3, cv::Scalar(0,0,0));
+    Mat res = contourImage;
+
+    cv::Mat contourImage1(part2.size(), CV_8UC3, cv::Scalar(0,0,0));
+    Mat res1 = contourImage1;
+    for(auto i: same){
+//        std::cout<<"line: "<<i.first.index<<"\nl1: "<<i.first.l1
+//                 <<" l2: "<<i.first.l2<<"\nnum: "<<i.first.num<<"\n";
+//        std::cout<<"["<<c0[0][i.first.num-1]<<" ; "<<c0[0][i.first.num]<<"] ";
+//        std::cout<<"["<<c0[0][i.first.num]<<" ; "<<c0[0][i.first.num+1]<<"]\n---------------";
+//
+//        std::cout<<"line: "<<i.second.index<<"\nl1: "<<i.second.l1
+//                 <<" l2: "<<i.second.l2<<"\nindex: "<<i.second.num<<"\n";
+//        std::cout<<"["<<c1[0][i.second.num-1]<<" ; "<<c1[0][i.second.num]<<"] ";
+//        std::cout<<"["<<c1[0][i.second.num]<<" ; "<<c1[0][i.second.num+1]<<"]\n-------------";
+
+        circle(res, c0[0][i.first.num-1], 3, Scalar(0,255,0));
+        circle(res, c0[0][i.first.num+1], 3, Scalar(0,255,0));
+
+        circle(res1, c1[0][i.second.num-1], 3, Scalar(0,255,0));
+        circle(res1, c1[0][i.second.num+1], 3, Scalar(0,255,0));
+    }
+
+    for (size_t idx = 0; idx < c0.size(); idx++) {
+        cv::drawContours(contourImage, c0, 0, 255);
+    }
+    cv::imshow("Contours", contourImage);
+
+    for (size_t idx = 0; idx < c1.size(); idx++) {
+        cv::drawContours(contourImage1, c1, 0, 255);
+    }
+    cv::imshow("Contours1", contourImage1);
+    cv::waitKey(0);
+}
+
+double find_degree(Point_<int> point, Point_<int> point1, Point_<int> point2, Point_<int> point3) {
+
+    ABC abc1 = get_line_through_points(point,point1);
+    ABC abc2 = get_line_through_points(point2,point3);
+    double result = the_angle_between_the_lines(abc1,abc2);
+    std::cout<<result<<"\n";
+    return result;
+};
+
+Mat Result(std::vector<Mat> parts){
+    std::vector<std::vector<std::vector<cv::Point>>> contours;
+    std::vector<std::vector<std::pair<double,spec_line>>> points;
+    std::vector<std::vector<std::pair<spec_line,spec_line>>> same;
+    for(uint i = 0; i < parts.size(); ++i){
+        preprocessing(parts.at(i));
+        contours.push_back(find_contours(parts.at(i)));
+        points.push_back(contour_processing(contours.at(i),parts.at(i),i));
+    }
+    std::reverse(points.at(1).begin(), points.at(1).end());
+    std::reverse(points.at(2).begin(), points.at(2).end());
+
+    std::vector<std::pair<spec_line,spec_line>> same01 =
+            search_for_matches(points.at(0),points.at(1));
+    std::vector<std::pair<spec_line,spec_line>> same02 =
+            search_for_matches(points.at(0),points.at(2));
+    std::vector<std::pair<spec_line,spec_line>> same12 =
+            search_for_matches(points.at(1),points.at(2));
+
+    auto c0 = contours.at(0);
+    auto c1 = contours.at(1);
+    auto c2 = contours.at(2);
+
+    draw_result(same01,parts.at(0),parts.at(1),c0,c1);
+    draw_result(same02,parts.at(0),parts.at(2),c0,c2);
+    draw_result(same12,parts.at(1),parts.at(2),c1,c2);
+
+    double degree01 = find_degree(c0[0][same01.at(0).first.num - 1],
+                                  c0[0][same01.back().first.num + 1],
+                                  c1[0][same01.at(0).first.num - 1],
+                                  c1[0][same01.back().first.num]);
+    double degree02 = find_degree(c0[0][same02.at(0).first.num - 1],
+                                  c0[0][same02.back().first.num + 1],
+                                  c2[0][same02.at(0).first.num - 1],
+                                  c2[0][same02.back().first.num]);
+
+    rotate(parts[0],acos(degree02)* 180.0 /M_PI+90);
+
+    rotate(parts[0],90);
+    rotate(parts[2],100);
+    Mat dst;
+    cv::hconcat(parts[0], parts[2], dst);
+
+    rotate(parts[1],acos(degree01)* 180.0 /M_PI+90);
+    rotate(parts[1],210);
+    Mat dst1;
+    cv::hconcat(parts[1], dst, dst1);
+
+    cv::imshow("Contours", dst1);
+    namedWindow("Contours", WINDOW_AUTOSIZE);
+    cv::waitKey(0);
+    return dst1;
+}
 int main(int argc, char* argv[]) {
     Mat img = imread(argv[1]);
     std::vector<Mat> parts;
@@ -240,76 +318,6 @@ int main(int argc, char* argv[]) {
     roi_3.copyTo(part_3);
     parts.push_back(part_3);
 
-    preprocessing(parts.at(0));
-    preprocessing(parts.at(1));
-
-    std::vector<std::vector<cv::Point>> c0 = find_contours(parts.at(0));
-    std::vector<std::vector<cv::Point>> c1= find_contours(parts.at(1));
-
-    std::vector<std::pair<double,spec_line>> v0;
-    std::vector<std::pair<double,spec_line>> v1;
-
-    v0 = contour_processing(c0,parts.at(0),0);
-    v1 = contour_processing(c1,parts.at(1), 1);
-    std::reverse(v1.begin(), v1.end());
-
-    std::vector<std::pair<spec_line,spec_line>> same = search_for_matches(v0,v1);
-
-    cv::Mat contourImage(parts[0].size(), CV_8UC3, cv::Scalar(0,0,0));
-    Mat res = contourImage;
-
-    cv::Mat contourImage1(parts[1].size(), CV_8UC3, cv::Scalar(0,0,0));
-    Mat res1 = contourImage1;
-
-    for(auto i: same){
-        std::cout<<"line: "<<i.first.index<<"\nl1: "<<i.first.l1
-                 <<" l2: "<<i.first.l2<<"\nnum: "<<i.first.num<<"\n";
-        std::cout<<"["<<c0[0][i.first.num-1]<<" ; "<<c0[0][i.first.num]<<"] ";
-        std::cout<<"["<<c0[0][i.first.num]<<" ; "<<c0[0][i.first.num+1]<<"]\n---------------";
-
-        std::cout<<"line: "<<i.second.index<<"\nl1: "<<i.second.l1
-                 <<" l2: "<<i.second.l2<<"\nindex: "<<i.second.num<<"\n";
-        std::cout<<"["<<c1[0][i.second.num-1]<<" ; "<<c1[0][i.second.num]<<"] ";
-        std::cout<<"["<<c1[0][i.second.num]<<" ; "<<c1[0][i.second.num+1]<<"]\n-------------";
-
-        circle(res, c0[0][i.first.num-1], 3, Scalar(0,255,0));
-        circle(res, c0[0][i.first.num+1], 3, Scalar(0,255,0));
-
-        circle(res1, c1[0][i.second.num-1], 3, Scalar(0,255,0));
-        circle(res1, c1[0][i.second.num+1], 3, Scalar(0,255,0));
-//        std::cout<<"----------------------------------------------------------";
-//        ABC abc1;
-//        ABC abc2;
-//        if(i.first.l1 > i.first.l2){
-//            abc1 = i.first.abc1;
-//        }else{
-//            abc1 = i.first.abc2;
-//        }
-//        if(i.second.l1 > i.second.l2){
-//            abc2 = i.first.abc1;
-//        }else{
-//            abc2 = i.second.abc2;
-//        }
-//        std::cout<<"degree: "<<the_angle_between_the_lines(abc1, abc2);
-    }
-
-    for (size_t idx = 0; idx < c0.size(); idx++) {
-        cv::drawContours(contourImage, c0, 0, 255);
-    }
-    cv::imshow("Contours", contourImage);
-//    cv::moveWindow("Contours", 200, 0);
-//    cv::waitKey(0);
-
-    for (size_t idx = 0; idx < c1.size(); idx++) {
-        cv::drawContours(contourImage1, c1, 0, 255);
-    }
-    cv::imshow("Contours1", contourImage1);
-//    cv::moveWindow("Contours1", 200, 0);
-    cv::waitKey(0);
-//    rotate(part_1,260);
-//    cv::imshow("Contours", part_1);
-//    cv::moveWindow("Contours", 200, 0);
-//    cv::waitKey(0);
-
+    Result(parts);
     return 0;
 }
